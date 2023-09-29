@@ -1,0 +1,169 @@
+###########################################
+# XOR payload and function name encryptor #
+# By @mechaneus                           #
+###########################################
+
+import sys
+from os import urandom
+from base64 import b64encode
+from Crypto.Random import get_random_bytes
+import argparse
+import traceback
+
+__version__ = '0.1'
+
+# Receive the plaintext and the key and return a XOR encrypted string.
+def XOREncrypt(plainText, KEY):
+    # KEY = KEY.decode('utf-8')
+    keyLength = len(KEY) # Calculate key length.
+    cipherText = ""
+
+    try:
+        for step in range(len(plainText)):
+            stepPlainText = plainText[step]
+            stepKEY = KEY[step%len(KEY)] # Calucate a key depending on the position in the plaintext string
+            cipherText += chr(ord(stepPlainText) ^ stepKEY) # XOR each plaintext character with the derived step key and add it to the cipher string
+        return cipherText
+    except Exception as error:
+        # Print error if anything goes wrong with the encryption operation.
+        print("[X] XOREncrypt: An exception occurred:", error)
+        print(traceback.format_exc())
+        sys.exit() 
+
+
+# Take a file with a payload in bytes .bin format, encrypt it and print the result in C variable declaration format.
+def encryptPayload(payloadFilename, KEY):
+    print("[!] Encrypting payload...")
+
+    # Read the binary payload from the file, in bytes.
+    try:
+        payloadFileItem = open(payloadFilename, "rb").read()     
+    except Exception as error:
+        # Print error if anything goes wrong with the file operation.
+        print(f"[X] Error opening file {payloadFilename}!", error)
+        sys.exit()
+
+    # If the file is ok, encrypt the payload.
+    try:
+        # Run XOREncrypt function on the input
+        encryptedPayloadFileItem = XOREncrypt(payloadFileItem, KEY)
+        # Store the output in C variable assignment format.
+        encryptedPayloadOutput = 'unsigned char payload[] = { 0x' + ', 0x'.join(hex(x)[2:] for x in encryptedPayloadFileItem) + ' };'
+        return encryptedPayloadOutput
+    except Exception as error:
+        # Print error if anything goes wrong with the encryption operation.
+        print("[X] encryptPayload: An exception occurred:", error)
+        print(traceback.format_exc())
+        sys.exit()        
+
+
+# Take a file with a list of strings, encrypt it and print the result.
+def encryptFunctionList(stringListFilename, KEY, decryptVerify):
+    print("[!] Encrypting function list...")
+    
+    # Read the string list from the file, in a strings' array, one per line.
+    try:
+        encryptedListOutput = ""
+        stringList = open(stringListFilename, "r").read().splitlines()
+    except Exception as error:
+        # Print error if anything goes wrong with the file operation.
+        print(f"[X] Error opening file {stringListFilename}!", error)
+        sys.exit()
+        
+    # If the file is ok, traverse it.
+    for stringItem in stringList:      
+        try:        
+            # Add a C string termination character
+            stringItem +="\x00"
+            # Encrypt each string (one per line).
+            encryptedStringItem = XOREncrypt(stringItem, KEY)
+            # If decryption verification is enabled, decrypt all strings and print them in byte format.
+            if decryptVerify == True or decryptVerify == "true":
+                plain_text = XOREncrypt(encryptedStringItem, KEY)
+                print(f"Original string: {bytes(stringItem, encoding='utf-8')}")
+                print(f"Decrypted string: {stringItem}: {bytes(plain_text.encode('utf-8'))}")            
+
+        except Exception as error:
+            # Print error if anything goes wrong with the encryption operation.
+            print("[X] encryptFunctionList: An exception occurred:", error)
+            print(traceback.format_exc())
+            sys.exit()
+        # Store the output in C variable assignment format.
+        encryptedListOutput += f'unsigned char s{stringItem}[] = {{ 0x' + ', 0x'.join(hex(ord(x))[2:] for x in encryptedStringItem) + ' };\n'       
+        
+    return encryptedListOutput
+
+globalKEY = ""
+# Check if a key was provided. If not, generate a random key.
+def manageKey(KEY):
+    if KEY:
+        KEY = KEY.encode('utf-8')
+        print(f"[!] The plaintext key provided is: {KEY.decode('utf-8')}")      
+    else:
+        # Two ways to get a random key
+        KEY = get_random_bytes(16)
+        print(f"[!] A random key of non-printable characters was generated.")
+    return KEY
+    
+
+def main():
+    print(f"""       
+
+ __   __  _______  ______      _______  __    _  _______  ______    __   __  _______  _______  _______  ______   
+|  |_|  ||       ||    _ |    |       ||  |  | ||       ||    _ |  |  | |  ||       ||       ||       ||    _ |  
+|       ||   _   ||   | ||    |    ___||   |_| ||       ||   | ||  |  |_|  ||    _  ||_     _||   _   ||   | ||  
+|       ||  | |  ||   |_||_   |   |___ |       ||       ||   |_||_ |       ||   |_| |  |   |  |  | |  ||   |_||_ 
+ |     | |  |_|  ||    __  |  |    ___||  _    ||      _||    __  ||_     _||    ___|  |   |  |  |_|  ||    __  |
+|   _   ||       ||   |  | |  |   |___ | | |   ||     |_ |   |  | |  |   |  |   |      |   |  |       ||   |  | |
+|__| |__||_______||___|  |_|  |_______||_|  |__||_______||___|  |_|  |___|  |___|      |___|  |_______||___|  |_|
+
+    by @mechaneus                                                                                   v {__version__}
+    """)
+
+    # Parse script arguments
+    parser = argparse.ArgumentParser(prog='XOREncryptor', description='XOR payload and function name encryptor. All output will be in C/C++ variable declaration format.', conflict_handler='resolve')
+    parser.add_argument('-v', '--version', action='version', version='%(prog)s Version: ' + __version__)
+    parser.add_argument('-k', '--encryption-key', dest='KEY', metavar='<KEY STRING>', help='The key to use for XOR ecnryption. A random key will be generated if no key is provided.')
+    parser.add_argument('-p', '--payload-file', dest='payloadFilename', metavar='<BINARY FILE NAME>', help='The file name of a binary (.bin) payload to encrypt with XOR.')
+    parser.add_argument('-s', '--function-list-file', dest='stringListFilename', metavar='<TEXT FILE NAME>', help='The file name of a list of strings to encrypt with XOR (one per line).')
+    parser.add_argument('-df', '--decrypt-verify', dest='decryptVerify', metavar='True|False', choices=['True','true','False','false'], default='False', help='Decrypt the function list to verify the encryption. (Default: Fasle)')
+    parser.add_argument('-o', '--output-file', dest='outputFilename', metavar='<TEXT FILE NAME>', help='The file name where the output will be written. WARNING: The file will be created or overwritten!')
+    arguments = parser.parse_args()
+    
+    # Check if any argument was provided. If not, print help.
+    if len(sys.argv)==1:
+        parser.print_help(sys.stderr)
+        sys.exit(0)
+
+    # Check which parameters were provided and execute the corresponding actions.
+    if arguments.payloadFilename:
+        globalKEY = manageKey(arguments.KEY)
+        encryptedOutput = encryptPayload(arguments.payloadFilename, globalKEY)
+    elif arguments.stringListFilename:
+        globalKEY = manageKey(arguments.KEY)
+        encryptedOutput = encryptFunctionList(arguments.stringListFilename, globalKEY, arguments.decryptVerify)
+    else:
+        parser.print_help(sys.stderr)
+        sys.exit(0) 
+   
+    # If an output file was provided then write the output in the file, otherwise print it on the console.
+    if arguments.outputFilename and encryptedOutput:
+        print("[!] Writing output to file... (All output will be in C/C++ variable declaration format.)")
+        keyOutput = 'char key[] = { 0x' + ', 0x'.join(hex(x)[2:] for x in globalKEY) + ' };\n' # Store the key string in C variable assignment format.
+        try:       
+            open(arguments.outputFilename, "w").write(keyOutput)
+            open(arguments.outputFilename, "a").write(encryptedOutput)
+        except Exception as error:
+            print("[X] Writing output to file: An exception occurred:", error)
+        print("[!] Done!")
+    elif encryptedOutput:
+        print(f"[!] The key in hex format is:")
+        print('char key[] = { 0x' + ', 0x'.join(hex(x)[2:] for x in globalKEY) + ' };') 
+        print(f"[!] The encrypted output in hex format is:")
+        print(encryptedOutput)
+    else:
+        print("[X] Output error.")
+
+
+if __name__ == '__main__':
+    main()
